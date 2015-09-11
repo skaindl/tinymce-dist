@@ -1,4 +1,4 @@
-// 4.2.5 (2015-08-31)
+// 4.2.6 (2015-09-xx)
 
 /**
  * Compiled inline version. (Library mode)
@@ -30299,6 +30299,16 @@ define("tinymce/EditorUpload", [
 	return function(editor) {
 		var blobCache = new BlobCache(), uploader, imageScanner;
 
+		function aliveGuard(callback) {
+			return function(result) {
+				if (editor.selection) {
+					return callback(result);
+				}
+
+				return [];
+			};
+		}
+
 		// Replaces strings without regexps to avoid FF regexp to big issue
 		function replaceString(content, search, replace) {
 			var index = 0;
@@ -30338,14 +30348,14 @@ define("tinymce/EditorUpload", [
 				});
 			}
 
-			return scanForImages().then(function(imageInfos) {
+			return scanForImages().then(aliveGuard(function(imageInfos) {
 				var blobInfos;
 
 				blobInfos = Arr.map(imageInfos, function(imageInfo) {
 					return imageInfo.blobInfo;
 				});
 
-				return uploader.upload(blobInfos).then(function(result) {
+				return uploader.upload(blobInfos).then(aliveGuard(function(result) {
 					result = Arr.map(result, function(uploadInfo, index) {
 						var image = imageInfos[index].image;
 
@@ -30367,8 +30377,14 @@ define("tinymce/EditorUpload", [
 					}
 
 					return result;
-				});
-			});
+				}));
+			}));
+		}
+
+		function uploadImagesAuto(callback) {
+			if (editor.settings.automatic_uploads !== false) {
+				return uploadImages(callback);
+			}
 		}
 
 		function scanForImages() {
@@ -30376,14 +30392,15 @@ define("tinymce/EditorUpload", [
 				imageScanner = new ImageScanner(blobCache);
 			}
 
-			return imageScanner.findAll(editor.getBody()).then(function(result) {
-				Arr.each(result, function(resultItem) {
-					replaceUrlInUndoStack(resultItem.image.src, resultItem.blobInfo.blobUri());
-					resultItem.image.src = resultItem.blobInfo.blobUri();
-				});
+			return imageScanner.findAll(editor.getBody()).then(aliveGuard(function(result) {
+				// Don't replace base64 img src with blob
+				//Arr.each(result, function(resultItem) {
+					// replaceUrlInUndoStack(resultItem.image.src, resultItem.blobInfo.blobUri());
+					// resultItem.image.src = resultItem.blobInfo.blobUri();
+				//});
 
 				return result;
-			});
+			}));
 		}
 
 		function destroy() {
@@ -30405,11 +30422,17 @@ define("tinymce/EditorUpload", [
 					return 'src="data:' + blobInfo.blob().type + ';base64,' + blobInfo.base64() + '"';
 				}
 
-				return match[0];
+				return match;
 			});
 		}
 
-		editor.on('setContent paste', scanForImages);
+		editor.on('setContent', function() {
+			if (editor.settings.automatic_uploads !== false) {
+				uploadImagesAuto();
+			} else {
+				scanForImages();
+			}
+		});
 
 		editor.on('RawSaveContent', function(e) {
 			e.content = replaceBlobWithBase64(e.content);
@@ -30426,6 +30449,7 @@ define("tinymce/EditorUpload", [
 		return {
 			blobCache: blobCache,
 			uploadImages: uploadImages,
+			uploadImagesAuto: uploadImagesAuto,
 			scanForImages: scanForImages,
 			destroy: destroy
 		};
@@ -33065,7 +33089,7 @@ define("tinymce/EditorManager", [
 		 * @property minorVersion
 		 * @type String
 		 */
-		minorVersion: '2.5',
+		minorVersion: '2.6',
 
 		/**
 		 * Release date of TinyMCE build.
@@ -33073,7 +33097,7 @@ define("tinymce/EditorManager", [
 		 * @property releaseDate
 		 * @type String
 		 */
-		releaseDate: '2015-08-31',
+		releaseDate: '2015-09-xx',
 
 		/**
 		 * Collection of editor instances.
@@ -33796,6 +33820,12 @@ define("tinymce/util/XHR", [
 
 				if (settings.content_type) {
 					xhr.setRequestHeader('Content-Type', settings.content_type);
+				}
+
+				if (settings.requestheaders) {
+					Tools.each(settings.requestheaders, function(header) {
+						xhr.setRequestHeader(header.key, header.value);
+					});
 				}
 
 				xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
